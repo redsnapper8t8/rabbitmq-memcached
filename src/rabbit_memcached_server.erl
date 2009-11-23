@@ -38,7 +38,7 @@
 %% ====================================================================
 
 start_link() ->
-    gen_fsm:start_link({ local, ?MODULE }, ?MODULE, [], []).
+    gen_fsm:start_link(?MODULE, [], []).
 
 set_socket(Pid, Socket) when is_pid(Pid), is_port(Socket) ->
     gen_fsm:send_event(Pid, {socket_ready, Socket}).
@@ -245,19 +245,27 @@ process_queue_get(Queues) ->
 process_queue_get([], Values) ->
     Values;
 process_queue_get([Queue|L], Values) ->
-    case rabbit_memcached_worker:get(binary_to_list(Queue)) of
+    case rabbit_memcached_worker:get(Queue) of
         {ok, {Key, Content}} ->
             process_queue_get([{Key, Content}|Values], L);
         empty ->            
-            process_queue_get(Values, lists:filter(fun(Name) -> Name =/= Queue end, L))
+            process_queue_get(Values, lists:filter(fun(Name) -> Name =/= Queue end, L));
+        {error, Error} ->
+            throw(Error)
     end.
 
 % GET
 process_command(get, Keys, #state{socket=Socket} = State) ->
     rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
-    Values = process_queue_get(Keys),    
-    Data = construct_values(Values),
-    gen_tcp:send(Socket, Data),
+    try process_queue_get(Keys) of
+        Values ->
+            Data = construct_values(Values),
+            gen_tcp:send(Socket, Data)
+    catch
+        throw:_Error ->
+            gen_tcp:send(Socket, <<"ERROR\r\n">>)
+    end,
+            
     set_opts(header, {Socket}),
     {'Header', State#state{header= <<>>, body_len=0}};
 

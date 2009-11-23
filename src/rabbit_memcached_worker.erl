@@ -40,7 +40,7 @@ stop(_State) ->
     stop().
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+    gen_server:start_link(?MODULE, Params, []).
 
 get(Queue) ->
     gen_server:call(?MODULE, {get, Queue}).
@@ -99,12 +99,15 @@ parse_params([{ssl_options, Value} | L], Params) when is_atom(Value) ->
 %% --------------------------------------------------------------------
 handle_call({get, Queue}, _From, State = #state{channel = Channel}) ->
     Method = #'basic.get'{queue = Queue, no_ack = true},
-    {Result, Content} = amqp_channel:call(Channel, Method),
-    case Result of
-        #'basic.get_ok'{routing_key=Key} ->
+   
+    try amqp_channel:call(Channel, Method) of
+        { #'basic.get_ok'{routing_key=Key}, Content } ->
             {reply, {ok, {Key, Content}}, State};
-        #'basic.get_empty'{} ->
+        { #'basic.get_empty'{}, _Content } ->
             {reply, empty, State}
+    catch                
+        _:Error ->
+            {reply, {error, Error}, State}
     end;
 
 handle_call({put, Exchange, Data}, _From, State = #state{channel = Channel}) ->
