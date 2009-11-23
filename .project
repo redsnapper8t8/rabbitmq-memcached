@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>rabbitmq-memcached</name>
+	<comment></comment>
+	<projects>
+		<project>rabbitmq-erlang-client</project>
+		<project>rabbitmq-server</project>
+	</projects>
+	<buildSpec>
+		<buildCommand>
+			<name>org.erlide.core.erlbuilder</name>
+			<arguments>
+			</arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>org.erlide.core.erlnature</nature>
+	</natures>
+</projectDescription>
