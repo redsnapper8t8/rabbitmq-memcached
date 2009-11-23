@@ -10,6 +10,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
+-include("rabbit_memcached.hrl").
 
 %% --------------------------------------------------------------------
 %% External exports
@@ -24,7 +25,6 @@
     cmd_set = 0,
     get_hits = 0,
     get_misses = 0,
-    evictions = 0,
     bytes_read = 0,
     bytes_written = 0,
     curr_connections = 0,
@@ -75,9 +75,8 @@ init([]) ->
 handle_call({increment, Items}, _From, State) ->    
     {reply, ok, do_increment(Items, State)};
 
-handle_call({stats}, _From, State) ->
-    Items = do_stats(State),
-    {reply, Items, State};
+handle_call({stats}, _From, State) ->    
+    {reply, do_stats(State), State};
 
 handle_call(Request, _From, State) ->
     {reply, {unknown_call, Request}, State}.
@@ -141,4 +140,18 @@ do_increment([{ total_connections, Value } | L], State = #state{ total_connectio
     do_increment(L, State#state{ total_connections = Cur + Value }).
 
 do_stats(State) ->
-    State.
+    [
+        { cmd_get, integer_to_list(State#state.cmd_get) },
+        { cmd_set, integer_to_list(State#state.cmd_set) },
+        { get_hits, integer_to_list(State#state.get_hits) },
+        { get_misses, integer_to_list(State#state.get_misses) },
+        { bytes_read, integer_to_list(State#state.bytes_read) },
+        { bytes_written, integer_to_list(State#state.bytes_written) },
+        { curr_connections, integer_to_list(State#state.curr_connections) },
+        { total_connections, integer_to_list(State#state.total_connections) },
+        { uptime, integer_to_list(State#state.uptime) },
+        
+        { pid, os:getpid() },
+        { time, integer_to_list(server_util:current_time()) },
+        { version, ?VERSION}        
+    ].

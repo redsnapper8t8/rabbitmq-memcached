@@ -245,7 +245,7 @@ process_queue_get(Queues) ->
 process_queue_get([], Values) ->
     Values;
 process_queue_get([Queue|L], Values) ->
-    case rabbit_memcached_worker:get(Queue) of
+    case rabbit_memcached_worker:get(binary_to_list(Queue)) of
         {ok, {Key, Content}} ->
             process_queue_get([{Key, Content}|Values], L);
         empty ->            
@@ -254,8 +254,7 @@ process_queue_get([Queue|L], Values) ->
 
 % GET
 process_command(get, Keys, #state{socket=Socket} = State) ->
-    rabbit_memcached_stats:increment([{ cmd_get, 1 }]),
-    
+    rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
     Values = process_queue_get(Keys),    
     Data = construct_values(Values),
     gen_tcp:send(Socket, Data),
@@ -279,8 +278,13 @@ process_command(delete, {_Del}, #state{socket=Socket}=State) ->
     {'Header', State#state{header= <<>>, body_len=0}};
 
 % STATS
-process_command(stats, {}, #state{socket=Socket}=State) ->
-    gen_tcp:send(Socket, <<"ERROR\r\n">>),
+process_command(stats, {}, #state{socket=Socket}=State) ->    
+    Data = lists:foldl(
+             fun({Name, Value}, Acc) ->
+                Bin = iolist_to_binary(io_lib:format("STAT ~p ~s\r\n", [Name, Value])), 
+                <<Acc/binary, Bin/binary>>
+             end, <<>>, rabbit_memcached_stats:stats()),    
+    gen_tcp:send(Socket, <<Data/binary, "END\r\n">>),
     set_opts(header, {Socket}),
     {'Header', State#state{header= <<>>, body_len=0}};
 
