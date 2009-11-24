@@ -242,14 +242,14 @@ construct_entry({Key, Content}) ->
 
 process_queue_get(Queues) ->
     process_queue_get(Queues, []).
-process_queue_get([], Values) ->
+process_queue_get([], Values) ->    
     Values;
-process_queue_get([Queue|L], Values) ->
+process_queue_get([Queue|L], Values) ->   
     case rabbit_memcached_worker:get(Queue) of
         {ok, {Key, Content}} ->
-            process_queue_get([{Key, Content}|Values], L);
+            process_queue_get(L, [{Key, Content}|Values]);
         empty ->            
-            process_queue_get(Values, lists:filter(fun(Name) -> Name =/= Queue end, L));
+            process_queue_get(lists:filter(fun(Name) -> Name =/= Queue end, L), Values);
         {error, Error} ->
             throw(Error)
     end.
@@ -257,6 +257,7 @@ process_queue_get([Queue|L], Values) ->
 % GET
 process_command(get, Keys, #state{socket=Socket} = State) ->
     rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
+    
     try process_queue_get(Keys) of
         Values ->
             Data = construct_values(Values),
@@ -301,13 +302,22 @@ process_command(unknown, _Command, #state{socket=Socket} = State) ->
     gen_tcp:send(Socket, <<"ERROR\r\n">>),
     {'Header', State#state{header= <<>>, body_len=0, body= <<>>}}.
 
-process_body(#state{socket=Socket, args=Storage, body=Body} = State) ->    
-    case rabbit_memcached_worker:put(Storage#storage.key, Body) of
+process_exchange_set(Exchange, Msg) ->    
+    case rabbit_memcached_worker:put(Exchange, Msg) of
         ok -> 
-            Result = construct_set_result(stored);
+            construct_set_result(stored);
         {error, _Error} ->
+            list_to_binary("ERROR\r\n")
+    end.
+
+process_body(#state{socket=Socket, args=Storage, body=Body, type=Method} = State) ->
+    case Method of
+        set ->
+            Result = process_exchange_set(Storage#storage.key, Body);
+        _ ->
             Result = list_to_binary("ERROR\r\n")
-    end,    
+    end,
+    
     gen_tcp:send(Socket, Result),
     set_opts(header, {Socket}),
     {'Header', State#state{body= <<>>, header= <<>>, body_len=0}}.
