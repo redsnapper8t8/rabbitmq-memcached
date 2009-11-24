@@ -40,7 +40,7 @@ stop(_State) ->
     stop().
 
 start_link(Params) ->
-    gen_server:start_link(?MODULE, Params, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 get(Queue) ->
     gen_server:call(?MODULE, {get, Queue}).
@@ -117,11 +117,14 @@ handle_call({put, Exchange, Data}, _From, State = #state{channel = Channel}) ->
     RoutingKey = list_to_binary(io_lib:format(?RKFormat, [Year, Month, Day, DayOfWeek, Hour, Min, Sec])),    
     Method =  #'basic.publish'{exchange = Exchange, routing_key = RoutingKey},
     Content = #amqp_msg{props = Props, payload = Data},
-    case amqp_channel:call(Channel, Method, Content) of
+    try amqp_channel:call(Channel, Method, Content) of
         { #'basic.return'{reply_code  = ReplyCode, reply_text  = ReplyText}, _ } ->
             {reply, {error, {ReplyCode, ReplyText}}, State};
         _ ->
             {reply, ok, State}
+    catch
+        _:Error ->
+            {reply, {error, Error}, State}
     end;
 
 handle_call(Request, _From, State) ->
