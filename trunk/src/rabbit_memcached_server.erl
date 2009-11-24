@@ -305,11 +305,10 @@ process_body(#state{socket=Socket, args=Storage, body=Body} = State) ->
     case rabbit_memcached_worker:put(Storage#storage.key, Body) of
         ok -> 
             Result = construct_set_result(stored);
-        {error, {_ReplyCode, ReplyText}} ->
-            Result = list_to_binary(io_lib:format("SERVER_ERROR ~s\r\n", [ReplyText]))
+        {error, _Error} ->
+            Result = list_to_binary("ERROR\r\n")
     end,    
-    Data = construct_set_result(Result),
-    gen_tcp:send(Socket, Data),
+    gen_tcp:send(Socket, Result),
     set_opts(header, {Socket}),
     {'Header', State#state{body= <<>>, header= <<>>, body_len=0}}.
 
