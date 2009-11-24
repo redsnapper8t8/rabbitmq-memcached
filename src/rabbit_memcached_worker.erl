@@ -61,6 +61,8 @@ put(Exchange, Data) ->
 %%          {stop, Reason}
 %% --------------------------------------------------------------------
 init(local) ->
+    process_flag(trap_exit, true),
+    
     io:format("connect RabbitMQ server w/ local mode\n"),
     
     Connection = amqp_connection:start_direct(),
@@ -98,12 +100,12 @@ parse_params([{ssl_options, Value} | L], Params) when is_atom(Value) ->
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% --------------------------------------------------------------------
 handle_call({get, Queue}, _From, State = #state{channel = Channel}) ->
-    Method = #'basic.get'{queue = Queue, no_ack = true},
-   
+    Method = #'basic.get'{queue = Queue, no_ack = true},    
+    
     try amqp_channel:call(Channel, Method) of
-        { #'basic.get_ok'{routing_key=Key}, Content } ->
+        { #'basic.get_ok'{routing_key=Key}, #amqp_msg {payload=Content} } ->            
             {reply, {ok, {Key, Content}}, State};
-        { #'basic.get_empty'{}, _Content } ->
+        #'basic.get_empty'{} ->
             {reply, empty, State}
     catch                
         _:Error ->
@@ -156,7 +158,7 @@ handle_info(_Info, State) ->
 %% Returns: any (ignored by gen_server)
 %% --------------------------------------------------------------------
 terminate(_, #state{channel = Channel}) ->
-    amqp_channel:call(Channel, #'channel.close'{}),
+    amqp_channel:close(Channel),
     ok.
 
 %% --------------------------------------------------------------------
