@@ -63,7 +63,7 @@ stop() ->
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(normal, []) -> 
-    supervisor:start_link( { local, rabbit_memcached_sup }, ?MODULE, []).
+    supervisor:start_link( { local, ?MODULE }, ?MODULE, []).
 
 %% --------------------------------------------------------------------
 %% Func: stop/1
