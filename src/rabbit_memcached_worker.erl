@@ -115,7 +115,7 @@ handle_call({get, Queue}, _From, State = #state{channel = Channel}) ->
         #'basic.get_empty'{} ->
             {reply, empty, State}
     catch                
-        _:Error ->
+        exit:Error ->
             {reply, {error, Error}, State}
     end;
 
@@ -128,11 +128,9 @@ handle_call({put, Exchange, Data}, _From, State = #state{channel = Channel}) ->
     Content = #amqp_msg{props = Props, payload = Data},
     try amqp_channel:call(Channel, Method, Content) of
         { #'basic.return'{reply_code  = ReplyCode, reply_text  = ReplyText}, _ } ->
-            {reply, {error, {ReplyCode, ReplyText}}, State};
-        _ ->
-            {reply, ok, State}
+            {reply, {error, {ReplyCode, ReplyText}}, State}        
     catch
-        _:Error ->
+        exit:Error ->
             {reply, {error, Error}, State}
     end;
 
