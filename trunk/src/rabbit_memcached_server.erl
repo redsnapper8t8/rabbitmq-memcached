@@ -250,27 +250,25 @@ construct_entry({Key, Content}) ->
 process_queue_get(Queues) ->
     process_queue_get(Queues, []).
 process_queue_get([], Values) ->    
-    Values;
+    { ok, Values };
 process_queue_get([Queue|L], Values) ->   
     case rabbit_memcached_worker:get(Queue) of
         {ok, {Key, Content}} ->
             process_queue_get(L, [{Key, Content}|Values]);
         empty ->            
             process_queue_get(lists:filter(fun(Name) -> Name =/= Queue end, L), Values);
-        {error, Error} ->
-            throw(Error)
+        {error, Error} ->            
+            {error, Error}
     end.
 
 % GET
 process_command(get, Keys, #state{socket=Socket} = State) ->
     rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
     
-    try process_queue_get(Keys) of
-        Values ->
-            Data = construct_values(Values),
-            gen_tcp:send(Socket, Data)
-    catch
-        throw:_Error ->
+    case process_queue_get(Keys) of
+        { ok, Values }->
+            gen_tcp:send(Socket, construct_values(Values));    
+        { error, _Error } ->
             gen_tcp:send(Socket, <<"ERROR\r\n">>)
     end,
             
