@@ -28,11 +28,9 @@
 %% --------------------------------------------------------------------
 %% Internal exports
 %% --------------------------------------------------------------------
--export([ start/0, 
-          stop/0,
-          listener_started/2,
-          listener_stopped/2,
-          start_server/2
+-export([ start/0, stop/0,
+          listener_started/2, listener_stopped/2,
+          start_server/2, start_server/4
         ]).
 
 %% --------------------------------------------------------------------
@@ -100,11 +98,17 @@ listener_started(_IPAddress, _Port) -> ok.
 
 listener_stopped(_IPAddress, _Port) -> ok.
 
-start_server(ServerModule, Sock) ->
-    io:format("start server ~p ~p\n", [ServerModule, Sock]),
+start_server(ServerModule, {tcp, Sock}) ->
+    io:format("start server ~p for tcp port ~p\n", [ServerModule, Sock]),
     {ok, Child} = supervisor:start_child(rabbit_memcached_server_sup, []),
     ok = gen_tcp:controlling_process(Sock, Child),
     ServerModule:set_socket(Child, Sock),
+    Child.
+
+start_server(ServerModule, {udp, Sock}, Packet, ReqId) ->
+    io:format("start server ~p for udp port ~p\n", [ServerModule, Sock]),
+    {ok, Child} = supervisor:start_child(rabbit_memcached_server_sup, []),
+    ServerModule:set_socket(Child, Sock, Packet, ReqId),
     Child.
 
 childspec({server, Module}) ->    
@@ -166,7 +170,7 @@ childspec({listener, Protocol, Host, Port, ServerModule}) ->
             start_link,
             [
                 IPAddress, Port,
-                [binary, {packet, raw}, {exit_on_close, false}],
+                [binary],
                 {?MODULE, listener_started, []},
                 {?MODULE, listener_stopped, []},
                 {?MODULE, start_server, [ServerModule]}

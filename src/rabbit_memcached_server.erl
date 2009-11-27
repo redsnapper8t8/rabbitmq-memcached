@@ -21,7 +21,7 @@
 
 %% --------------------------------------------------------------------
 %% External exports
--export([start_link/0, set_socket/2]).
+-export([start_link/0, set_socket/2, set_socket/4]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
@@ -37,6 +37,7 @@
         body= <<>>,     % parsed body
         body_len=0,
         type=get,
+        reqid,
         args
     }).
 
@@ -49,6 +50,9 @@ start_link() ->
 
 set_socket(Pid, Socket) when is_pid(Pid), is_port(Socket) ->
     gen_fsm:send_event(Pid, {socket_ready, Socket}).
+
+set_socket(Pid, Socket, Data, ReqId) when is_pid(Pid), is_port(Socket), is_binary(Data), is_integer(ReqId) ->
+    gen_fsm:send_event(Pid, {packet_ready, {Socket, Data, ReqId}}).
 
 %% ====================================================================
 %% Server functions
@@ -127,7 +131,10 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
     {ok, {IP, _Port}} = inet:peername(Socket),
     set_opts(header, {Socket}),
     rabbit_memcached_stats:increment([{curr_connections, 1}, {total_connections, 1}]),
-    {next_state, 'Header', State#state{socket=Socket, addr=IP}, ?COMMAND_TIMEOUT}.
+    {next_state, 'Header', State#state{socket=Socket, addr=IP}, ?COMMAND_TIMEOUT};
+
+'Socket'({socket_ready, {Socket, Data, ReqId}}, State) when is_port(Socket), is_binary(Data) ->
+    {next_state, 'Header', State#state{socket=Socket, data=Data, reqid=ReqId}, ?COMMAND_TIMEOUT}.
 
 'Header'(data, #state{data=Data, header=Header} = State) ->
     {Progress, NewData, NewHeader} = extract_header(Data, Header),

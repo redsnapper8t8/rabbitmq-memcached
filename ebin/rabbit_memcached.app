@@ -37,8 +37,8 @@
             ]}},
             { server_module, rabbit_memcached_server },
             { listeners, [ 
-                { tcp, "0.0.0.0", 11211 }
-                %{ udp, "0.0.0.0", 11211 }
+                { tcp, "0.0.0.0", 11211 },
+                { udp, "0.0.0.0", 11211 }
             ]}
         ]},
         %{ applications, [kernel, stdlib, sasl, rabbit, amqp_client]}
