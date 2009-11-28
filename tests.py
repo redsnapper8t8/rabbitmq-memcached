@@ -58,7 +58,7 @@ class RabbitMC(unittest.TestCase):
         
         self.assertEquals(None, self.ch.basic_get(self.queue))
         
-        self.mc.set(self.exchange, body)
+        self.assert_(self.mc.set(self.exchange, body))
         
         time.sleep(0.1)
         
@@ -73,7 +73,7 @@ class RabbitMC(unittest.TestCase):
         mc = memcache.Client(['127.0.0.1:11211'], debug=1 if '-v' in sys.argv else 0)
         
         self.assertEquals(None, self.mc.get(self.queue))
-        self.mc.set(self.exchange, body)
+        self.assert_(self.mc.set(self.exchange, body))
         self.assertEquals(body, self.mc.get(self.queue))
         
         mc = self.createMemcacheClient()
@@ -85,13 +85,43 @@ class RabbitMC(unittest.TestCase):
         self.assertEquals(int(stats['get_hits']) + 1, int(new_stats['get_hits']))
         self.assertEquals(int(stats['get_misses']) + 1, int(new_stats['get_misses']))        
         self.assertEquals(int(stats['bytes_read']) + 78, int(new_stats['bytes_read']))
-        self.assertEquals(int(stats['bytes_written']) + 309, int(new_stats['bytes_written']))
+        self.assert_(int(stats['bytes_written']) + 320 < int(new_stats['bytes_written']))
         self.assertEquals(int(stats['curr_connections']) + 1, int(new_stats['curr_connections']))
         self.assertEquals(int(stats['total_connections']) + 1, int(new_stats['total_connections']))
         self.assert_(int(stats['uptime']) > 0)
         self.assert_(int(stats['pid']) > 0)
         self.assert_(int(stats['time']) > 0)
         self.assertEquals('0.1', stats['version'])
+        
+    def testPerformance(self):
+        start = time.clock()
+        
+        body = ''.join([chr(i) for i in range(256)])
+        times = 1000
+
+        for i in range(times):
+            self.mc.set(self.exchange, body)
+            
+        stop = time.clock()
+        
+        rps = times / stop - start
+        
+        logging.info("write requests per seconds: %f RPS", rps)
+        
+        self.assert_(rps > 2000)
+        
+        for i in range(times-1):
+            self.mc.get(self.queue)
+            
+        self.assertEquals(body, self.mc.get(self.queue))
+            
+        stop = time.clock()
+        
+        rps = times / stop - start
+        
+        logging.info("read requests per seconds: %f RPS", rps)
+        
+        self.assert_(rps > 500)        
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.DEBUG if '-v' in sys.argv else logging.WARNING,
