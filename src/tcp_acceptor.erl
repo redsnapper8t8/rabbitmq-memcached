@@ -99,7 +99,7 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}},
                            inet_parse:ntoa(PeerAddress), PeerPort]),
 
     %% handle
-    apply(M, F, A ++ [Sock]),
+    apply(M, F, A ++ [{tcp, Sock}]),
 
     %% accept more
     case prim_inet:async_accept(LSock, -1) of

@@ -21,7 +21,7 @@
 
 %% --------------------------------------------------------------------
 %% External exports
--export([start_link/0, set_socket/2, set_socket/4]).
+-export([start_link/0, set_socket/2]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
@@ -30,8 +30,10 @@
 -export([ 'Socket'/2, 'Header'/2, 'Body'/2 ]).
 
 -record(state, {
-        socket, 
-        addr, 
+        socket,
+        protocol,                    
+        addr,
+        port,      
         data= <<>>,     % data received from client 
         header= <<>>,   % parsed header
         body= <<>>,     % parsed body
@@ -48,11 +50,13 @@
 start_link() ->
     gen_fsm:start_link(?MODULE, [], []).
 
-set_socket(Pid, Socket) when is_pid(Pid), is_port(Socket) ->
-    gen_fsm:send_event(Pid, {socket_ready, Socket}).
+set_socket(Pid, {tcp, Socket}) when is_pid(Pid), is_port(Socket) ->
+    gen_fsm:send_event(Pid, {socket_ready, {tcp, Socket}});
 
-set_socket(Pid, Socket, Data, ReqId) when is_pid(Pid), is_port(Socket), is_binary(Data), is_integer(ReqId) ->
-    gen_fsm:send_event(Pid, {packet_ready, {Socket, Data, ReqId}}).
+set_socket(Pid, {udp, Socket, Data, ReqId}) when is_pid(Pid), is_port(Socket), is_binary(Data), is_integer(ReqId) ->
+    rabbit_memcached_stats:increment([{ bytes_read, size(Data)+8 }]),
+    
+    gen_fsm:send_event(Pid, {packet_ready, {udp, Socket, Data, ReqId}}).
 
 %% ====================================================================
 %% Server functions
@@ -96,10 +100,12 @@ handle_sync_event(Event, _From, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}
 %% --------------------------------------------------------------------
 handle_info({tcp, Socket, Bin}, StateName, #state{socket=Socket, data=Data} = StateData) ->
+    rabbit_memcached_stats:increment([{ bytes_read, size(Bin) }]),
+    
     ?MODULE:StateName(data, StateData#state{data= <<Data/binary, Bin/binary>>});
 
-handle_info({tcp_closed, Socket}, _StateName, #state{socket=Socket, addr=_Addr} = StateData) ->
-%    error_logger:info_msg("~p Client ~p disconnected.\n", [self(), Addr]),
+handle_info({tcp_closed, Socket}, _StateName, #state{socket=Socket, addr=Addr} = StateData) ->
+    error_logger:info_msg("~p Client ~p disconnected.\n", [self(), Addr]),
     {stop, normal, StateData};
 
 handle_info(_Info, StateName, StateData) ->
@@ -110,9 +116,12 @@ handle_info(_Info, StateName, StateData) ->
 %% Purpose: Shutdown the fsm
 %% Returns: any
 %% --------------------------------------------------------------------
-terminate(_Reason, _StateName, #state{socket=Socket}) ->
+terminate(_Reason, _StateName, #state{socket=Socket, protocol=tcp}) ->
     (catch gen_tcp:close(Socket)),
     rabbit_memcached_stats:increment([{curr_connections, -1}]),
+    ok;
+
+terminate(_Reason, _StateName, _State) ->
     ok.
 
 %% --------------------------------------------------------------------
@@ -127,14 +136,14 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 %%% Internal states
 %% --------------------------------------------------------------------
 
-'Socket'({socket_ready, Socket}, State) when is_port(Socket) ->
-    {ok, {IP, _Port}} = inet:peername(Socket),
+'Socket'({socket_ready, {tcp, Socket}}, State) when is_port(Socket) ->
+    {ok, {IP, Port}} = inet:peername(Socket),
     set_opts(header, {Socket}),
     rabbit_memcached_stats:increment([{curr_connections, 1}, {total_connections, 1}]),
-    {next_state, 'Header', State#state{socket=Socket, addr=IP}, ?COMMAND_TIMEOUT};
+    {next_state, 'Header', State#state{socket=Socket, protocol=tcp, addr=IP, port=Port}, ?COMMAND_TIMEOUT};
 
-'Socket'({socket_ready, {Socket, Data, ReqId}}, State) when is_port(Socket), is_binary(Data) ->
-    {next_state, 'Header', State#state{socket=Socket, data=Data, reqid=ReqId}, ?COMMAND_TIMEOUT}.
+'Socket'({socket_ready, {udp, Socket, Data, IP, Port, ReqId}}, State) when is_port(Socket), is_binary(Data) ->
+    {next_state, 'Header', State#state{socket=Socket, protocol=udp, data=Data, addr=IP, port=Port, reqid=ReqId}, ?COMMAND_TIMEOUT}.
 
 'Header'(data, #state{data=Data, header=Header} = State) ->
     {Progress, NewData, NewHeader} = extract_header(Data, Header),
@@ -201,8 +210,6 @@ to_deletion([Key, Time]) ->
     #deletion{key=list_to_binary(Key), time=Time1}.
 
 parse_header(Data) ->
-    rabbit_memcached_stats:increment([{ bytes_read, size(Data)+2 }]),
-    
     Line = binary_to_list(Data),
     [Cmd|T] = string:tokens(Line, " "),
     case string:to_upper(Cmd) of
@@ -242,11 +249,11 @@ construct_values(Values) ->
         end, <<>>, Values),
     <<Data/binary, "END\r\n">>.
 
-construct_entry({_Key, undefined}) ->
+construct_entry({_Queue, _Key, undefined}) ->
     <<>>;
-construct_entry({Key, Content}) ->
+construct_entry({Queue, _Key, Content}) ->
     DataSize = size(Content),
-    Header = io_lib:format("VALUE ~s ~w ~w\r\n", [Key, 0, DataSize]),
+    Header = io_lib:format("VALUE ~s ~w ~w\r\n", [Queue, 0, DataSize]),    
     HeaderBin = case DataSize of
                     0 -> <<>>;
                     _ -> list_to_binary(Header)
@@ -261,35 +268,60 @@ process_queue_get([], Values) ->
 process_queue_get([Queue|L], Values) ->   
     case rabbit_memcached_worker:get(Queue) of
         {ok, {Key, Content}} ->
-            process_queue_get(L, [{Key, Content}|Values]);
-        empty ->            
+            rabbit_memcached_stats:increment([{ get_hits, 1 }]),
+            
+            process_queue_get(L, [{Queue, Key, Content}|Values]);
+        empty ->
+            rabbit_memcached_stats:increment([{ get_misses, 1 }]),
+            
             process_queue_get(lists:filter(fun(Name) -> Name =/= Queue end, L), Values);
-        {error, Error} ->            
+        {error, Error} ->                        
             {error, Error}
     end.
 
-% GET
-process_command(get, Keys, #state{socket=Socket} = State) ->
-    rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
+send_response(#state{socket=Socket, protocol=tcp}=State, Response) when is_binary(Response) ->
+    rabbit_memcached_stats:increment([{ bytes_written, size(Response) }]),
+
+    gen_tcp:send(Socket, Response),
     
-    case process_queue_get(Keys) of
-        { ok, Values }->
-            gen_tcp:send(Socket, construct_values(Values));    
-        { error, _Error } ->
-            gen_tcp:send(Socket, <<"ERROR\r\n">>)
-    end,
-            
     set_opts(header, {Socket}),
     {'Header', State#state{header= <<>>, body_len=0}};
 
+send_response(#state{socket=Socket, protocol=udp, addr=IP, port=Port, reqid=ReqId}=State, Response) when is_binary(Response) ->
+    Packet = <<ReqId:16, 0:16, 1:16, 0:16, Response/binary>>,
+
+    rabbit_memcached_stats:increment([{ bytes_written, size(Packet) }]),
+
+    gen_udp:send(Socket, IP, Port, Packet),
+    {stop, normal, State}.
+
+% GET
+process_command(get, Keys, State) ->
+    rabbit_memcached_stats:increment([{ cmd_get, 1 }]),    
+    
+    Response = case process_queue_get(Keys) of
+        { ok, Values }->
+            construct_values(Values);        
+        { error, _Error } ->
+            <<"ERROR\r\n">>
+    end,
+            
+    send_response(State, Response);
+
 % SET
-process_command(set, {Method, Storage}, #state{socket=Socket} = State) ->
+process_command(set, {Method, Storage}, #state{socket=Socket, protocol=Protocol} = State) ->
     rabbit_memcached_stats:increment([{ cmd_set, 1 }]),
     
     % resume body receiving
     BodyLen = Storage#storage.bytes,
-    set_opts(body, {Socket, BodyLen}),
+    
+    case Protocol of
+        tcp ->
+            set_opts(body, {Socket, BodyLen})
+    end,
+            
     gen_fsm:send_event(self(), data),
+    
     {'Body', State#state{header= <<>>, type=Method, args=Storage, body_len=BodyLen, body= <<>>}};
 
 % DELETE
@@ -299,20 +331,18 @@ process_command(delete, {_Del}, #state{socket=Socket}=State) ->
     {'Header', State#state{header= <<>>, body_len=0}};
 
 % STATS
-process_command(stats, {}, #state{socket=Socket}=State) ->    
+process_command(stats, {}, State) ->    
     Data = lists:foldl(
              fun({Name, Value}, Acc) ->
                 Bin = iolist_to_binary(io_lib:format("STAT ~p ~s\r\n", [Name, Value])), 
                 <<Acc/binary, Bin/binary>>
-             end, <<>>, rabbit_memcached_stats:stats()),    
-    gen_tcp:send(Socket, <<Data/binary, "END\r\n">>),
-    set_opts(header, {Socket}),
-    {'Header', State#state{header= <<>>, body_len=0}};
+             end, <<>>, rabbit_memcached_stats:stats()),
+    
+    send_response(State, <<Data/binary, "END\r\n">>);
 
 % Other
-process_command(unknown, _Command, #state{socket=Socket} = State) ->
-    gen_tcp:send(Socket, <<"ERROR\r\n">>),
-    {'Header', State#state{header= <<>>, body_len=0, body= <<>>}}.
+process_command(unknown, _Command, State) ->
+    send_response(State, <<"ERROR\r\n">>).
 
 process_exchange_set(Exchange, Msg) ->    
     case rabbit_memcached_worker:put(Exchange, Msg) of
@@ -322,17 +352,15 @@ process_exchange_set(Exchange, Msg) ->
             list_to_binary("ERROR\r\n")
     end.
 
-process_body(#state{socket=Socket, args=Storage, body=Body, type=Method} = State) ->
-    case Method of
+process_body(#state{args=Storage, body=Body, type=Method} = State) ->
+    Response = case Method of
         set ->
-            Result = process_exchange_set(Storage#storage.key, Body);
+            process_exchange_set(Storage#storage.key, Body);
         _ ->
-            Result = list_to_binary("ERROR\r\n")
+            list_to_binary("ERROR\r\n")
     end,
     
-    gen_tcp:send(Socket, Result),
-    set_opts(header, {Socket}),
-    {'Header', State#state{body= <<>>, header= <<>>, body_len=0}}.
+    send_response(State, Response).
 
 -ifdef(EUNIT).
 

@@ -112,7 +112,7 @@ handle_info({udp, Socket, IP, InPortNo, Packet}, State = #state{callback={M, F, 
                                    inet_parse:ntoa(IP), InPortNo]),
     
             %% handle
-            apply(M, F, A ++ [{udp, Socket}, Data, ReqId]);
+            apply(M, F, A ++ [{udp, Socket, Data, IP, InPortNo, ReqId}]);
         _ ->
             error_logger:info_msg("drop the invalid packet from ~p:~p with ~p bytes", 
                                   [inet_parse:ntoa(IP), InPortNo, size(Packet)])
