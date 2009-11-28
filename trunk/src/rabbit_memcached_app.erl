@@ -30,7 +30,7 @@
 %% --------------------------------------------------------------------
 -export([ start/0, stop/0,
           listener_started/2, listener_stopped/2,
-          start_server/2, start_server/4
+          start_server/2
         ]).
 
 %% --------------------------------------------------------------------
@@ -102,13 +102,13 @@ start_server(ServerModule, {tcp, Sock}) ->
     io:format("start server ~p for tcp port ~p\n", [ServerModule, Sock]),
     {ok, Child} = supervisor:start_child(rabbit_memcached_server_sup, []),
     ok = gen_tcp:controlling_process(Sock, Child),
-    ServerModule:set_socket(Child, Sock),
-    Child.
+    ServerModule:set_socket(Child, {tcp, Sock}),
+    Child;
 
-start_server(ServerModule, {udp, Sock}, Packet, ReqId) ->
+start_server(ServerModule, {udp, Sock, Packet, ReqId}) ->
     io:format("start server ~p for udp port ~p\n", [ServerModule, Sock]),
     {ok, Child} = supervisor:start_child(rabbit_memcached_server_sup, []),
-    ServerModule:set_socket(Child, Sock, Packet, ReqId),
+    ServerModule:set_socket(Child, {udp, Sock, Packet, ReqId}),
     Child.
 
 childspec({server, Module}) ->    

@@ -27,7 +27,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {channel}).
+-record(state, {connection, channel}).
 -define(RKFormat, "~4.10.0B.~2.10.0B.~2.10.0B.~1.10.0B.~2.10.0B.~2.10.0B.~2.10.0B").
 
 %% ====================================================================
@@ -74,12 +74,12 @@ init(local) ->
     
     Connection = amqp_connection:start_direct(),
     Channel = amqp_connection:open_channel(Connection),
-    {ok, #state{channel = Channel}};
+    {ok, #state{connection = Connection, channel = Channel}};
 
 init({ remote, Params }) when is_list(Params) ->
     Connection = amqp_connection:start_network(parse_params(Params, #amqp_params{})),
     Channel = amqp_connection:open_channel(Connection),
-    {ok, #state{channel = Channel}}.
+    {ok, #state{connection = Connection, channel = Channel}}.
 
 parse_params([], Params) ->
     Params;
@@ -106,7 +106,7 @@ parse_params([{ssl_options, Value} | L], Params) when is_atom(Value) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% --------------------------------------------------------------------
-handle_call({get, Queue}, _From, State = #state{channel = Channel}) ->
+handle_call({get, Queue}, _From, State = #state{connection=Connection, channel=Channel}) ->
     Method = #'basic.get'{queue = Queue, no_ack = true},    
     
     try amqp_channel:call(Channel, Method) of
@@ -114,12 +114,14 @@ handle_call({get, Queue}, _From, State = #state{channel = Channel}) ->
             {reply, {ok, {Key, Content}}, State};
         #'basic.get_empty'{} ->
             {reply, empty, State}
-    catch                
+    catch            
+        exit:{{server_initiated_close, 404, Reason}, _} ->
+            {reply, {error, Reason}, State#state{channel=amqp_connection:open_channel(Connection)}};
         exit:Error ->
             {reply, {error, Error}, State}
     end;
 
-handle_call({put, Exchange, Data}, _From, State = #state{channel = Channel}) ->
+handle_call({put, Exchange, Data}, _From, State = #state{connection=Connection, channel = Channel}) ->
     Props = #'P_basic'{content_type = <<"text/plain">>, delivery_mode = 1},
     {Date={Year,Month,Day},{Hour, Min,Sec}} = erlang:universaltime(),
     DayOfWeek = calendar:day_of_the_week(Date),
@@ -127,9 +129,11 @@ handle_call({put, Exchange, Data}, _From, State = #state{channel = Channel}) ->
     Method =  #'basic.publish'{exchange = Exchange, routing_key = RoutingKey},
     Content = #amqp_msg{props = Props, payload = Data},
     try amqp_channel:call(Channel, Method, Content) of
-        { #'basic.return'{reply_code  = ReplyCode, reply_text  = ReplyText}, _ } ->
-            {reply, {error, {ReplyCode, ReplyText}}, State}        
+        ok ->
+            {reply, ok, State}        
     catch
+        exit:{{server_initiated_close, 404, Reason}, _} ->
+            {reply, {error, Reason}, State#state{channel=amqp_connection:open_channel(Connection)}};
         exit:Error ->
             {reply, {error, Error}, State}
     end;
