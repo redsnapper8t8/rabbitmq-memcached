@@ -11,7 +11,7 @@
 %%
 %%   Contributor(s): ______________________________________.
 %%
--module(server_util).
+-module(rabbit_memcached_server_util).
 
 %%
 %% Include files

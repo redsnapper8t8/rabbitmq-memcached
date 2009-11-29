@@ -11,7 +11,7 @@
 %%
 %%   Contributor(s): ______________________________________.
 %%
--module(tcp_acceptor).
+-module(rabbit_memcached_tcp_acceptor).
 
 -behaviour(gen_server).
 %% --------------------------------------------------------------------
