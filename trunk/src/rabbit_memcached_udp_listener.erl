@@ -66,7 +66,6 @@ init({Addr, Port, SocketOpts,  {M, F, A} = OnStartup, OnShutdown, Callback}) ->
             {stop, {cannot_open, Addr, Port, Reason}}
     catch
         _:Error ->
-            io:format("fail to open UDP port ~p", [Error]),
             {stop, Error}
     end.
 
