@@ -192,9 +192,6 @@ extract_header(<<B:8, Rest/binary>>, Header) ->
     Header2 = <<Header/binary, B:8>>,
     extract_header(Rest, Header2).
 
--record(storage, {key, flags, exptime, bytes}).
--record(deletion, {key, time}).
-
 to_integer(Str) ->
     {Int, []} = string:to_integer(Str),
     Int.
@@ -361,32 +358,3 @@ process_body(#state{args=Storage, body=Body, type=Method} = State) ->
     end,
     
     send_response(State, Response).
-
--ifdef(EUNIT).
-
--include_lib("eunit/include/eunit.hrl").
-
-extract_header_test() ->
-    ?assertMatch({empty, _, <<>>}, extract_header(<<"\r\n">>, <<>>)),
-    ?assertMatch({done, <<"data">>, <<"header">>}, extract_header(<<"header\r\ndata">>, <<>>)),
-    ?assertMatch({incomplete, <<>>, <<"header">>}, extract_header(<<"header">>, <<>>)),
-    ok.
-
-to_storage_test() ->
-    ?assertMatch({set, {set, #storage{key= <<"key">>, flags=1, exptime=2, bytes=3}}}, parse_header(<<"set key 1 2 3">>)),
-    ?assertMatch({set, {add, #storage{key= <<"key">>, flags=1, exptime=2, bytes=3}}}, parse_header(<<"add key 1 2 3">>)),
-    ?assertMatch({set, {replace, #storage{key= <<"key">>, flags=1, exptime=2, bytes=3}}}, parse_header(<<"replace key 1 2 3">>)),
-    ?assertMatch({get, [<<"key1">>, <<"key2">>, <<"key3">>]}, parse_header(<<"get key1 key2 key3">>)),
-    ?assertMatch({stats, {}}, parse_header(<<"stats">>)),
-    ?assertMatch({quit, {}}, parse_header(<<"quit">>)),
-    ?assertMatch({unknown, "TEST"}, parse_header(<<"test">>)),
-    ok.
-
-process_command_test() ->
-    ?assertMatch({'Header', #state{header= <<>>, body_len=0}}, process_command(get, [], #state{})),
-    ok.
-
-header_test() ->
-    ok.
-
--endif.
