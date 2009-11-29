@@ -32,7 +32,8 @@ class RabbitMC(unittest.TestCase):
         
         self.mc = self.createMemcacheClient()
     
-    def tearDown(self):        
+    def tearDown(self):
+        self.ch.queue_delete(self.queue)
         self.ch.close()
         self.conn.close()
         
@@ -84,8 +85,8 @@ class RabbitMC(unittest.TestCase):
         self.assertEquals(int(stats['cmd_get']) + 2, int(new_stats['cmd_get']))        
         self.assertEquals(int(stats['get_hits']) + 1, int(new_stats['get_hits']))
         self.assertEquals(int(stats['get_misses']) + 1, int(new_stats['get_misses']))        
-        self.assertEquals(int(stats['bytes_read']) + 78, int(new_stats['bytes_read']))
-        self.assert_(int(stats['bytes_written']) + 320 < int(new_stats['bytes_written']))
+        self.assert_(int(stats['bytes_read']) < int(new_stats['bytes_read']))
+        self.assert_(int(stats['bytes_written']) < int(new_stats['bytes_written']))
         self.assertEquals(int(stats['curr_connections']) + 1, int(new_stats['curr_connections']))
         self.assertEquals(int(stats['total_connections']) + 1, int(new_stats['total_connections']))
         self.assert_(int(stats['uptime']) > 0)
