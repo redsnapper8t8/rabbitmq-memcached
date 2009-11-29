@@ -2,4 +2,5 @@
 
 -define(COMMAND_TIMEOUT, 120000).
 
--define(EUNIT, true).
+-record(storage, {key, flags, exptime, bytes}).
+-record(deletion, {key, time}).
