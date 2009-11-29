@@ -41,8 +41,6 @@
 %% External functions
 %% ====================================================================
 start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback) ->
-    io:format("udp_listener_sup:start_link ~p, ~p, ~p, ~p, ~p, ~p", [IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback]),
-    
     supervisor:start_link({local, ?MODULE}, ?MODULE, 
                           {IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback}).
 
