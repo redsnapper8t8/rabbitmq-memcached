@@ -156,11 +156,11 @@ childspec({listener, Protocol, Host, Port, ServerModule}) ->
                throw({error, invalid_port, Port})
     end,
     
-    Name = server_util:sup_name(Protocol, IPAddress, Port),
+    Name = rabbit_memcached_server_util:sup_name(Protocol, IPAddress, Port),
     SupName = 
         case Protocol of
-            tcp -> tcp_listener_sup;
-            udp -> udp_listener_sup
+            tcp -> rabbit_memcached_tcp_listener_sup;
+            udp -> rabbit_memcached_udp_listener_sup
         end,    
     
     {

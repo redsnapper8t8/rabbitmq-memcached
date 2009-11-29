@@ -11,7 +11,7 @@
 %%
 %%   Contributor(s): ______________________________________.
 %%
--module(tcp_listener_sup).
+-module(rabbit_memcached_udp_listener_sup).
 
 -behaviour(supervisor).
 %% --------------------------------------------------------------------
@@ -21,18 +21,17 @@
 %% --------------------------------------------------------------------
 %% External exports
 %% --------------------------------------------------------------------
--export([start_link/6, start_link/7]).
+-export([start_link/6]).
 
 %% --------------------------------------------------------------------
 %% Internal exports
 %% --------------------------------------------------------------------
--export([
-	 init/1
-        ]).
+-export([init/1]).
 
 %% --------------------------------------------------------------------
 %% Macros
 %% --------------------------------------------------------------------
+-define(SERVER, ?MODULE).
 
 %% --------------------------------------------------------------------
 %% Records
@@ -41,13 +40,11 @@
 %% ====================================================================
 %% External functions
 %% ====================================================================
-start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, AcceptCallback) ->
-    start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, AcceptCallback, 1).
-
-start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown,
-           AcceptCallback, ConcurrentAcceptorCount) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {IPAddress, Port, SocketOpts, 
-        OnStartup, OnShutdown, AcceptCallback, ConcurrentAcceptorCount}).
+start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback) ->
+    io:format("udp_listener_sup:start_link ~p, ~p, ~p, ~p, ~p, ~p", [IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback]),
+    
+    supervisor:start_link({local, ?MODULE}, ?MODULE, 
+                          {IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback}).
 
 %% ====================================================================
 %% Server functions
@@ -58,20 +55,12 @@ start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown,
 %%          ignore                          |
 %%          {error, Reason}
 %% --------------------------------------------------------------------
-init({IPAddress, Port, SocketOpts, OnStartup, OnShutdown,
-      AcceptCallback, ConcurrentAcceptorCount}) ->    
-    AcceptorSupName = server_util:sup_name(tcp_acceptor_sup, IPAddress, Port),
-    
+init({IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback}) ->    
     {ok, {{one_for_all, 10, 10},
-          [{tcp_acceptor_sup, {tcp_acceptor_sup, start_link,
-                               [AcceptorSupName, AcceptCallback]},
-            transient, infinity, supervisor, [tcp_acceptor_sup]},
-           {tcp_listener, {tcp_listener, start_link,
-                           [IPAddress, Port, SocketOpts,
-                            ConcurrentAcceptorCount, AcceptorSupName,
-                            OnStartup, OnShutdown]},
-            transient, 100, worker, [tcp_listener]}]}}.
-
+          [{rabbit_memcached_udp_listener, {rabbit_memcached_udp_listener, start_link,
+            [IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback]},
+            transient, 100, worker, [rabbit_memcached_udp_listener]}]}}.
+    
 %% ====================================================================
 %% Internal functions
 %% ====================================================================

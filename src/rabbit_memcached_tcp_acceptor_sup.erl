@@ -11,7 +11,7 @@
 %%
 %%   Contributor(s): ______________________________________.
 %%
--module(tcp_acceptor_sup).
+-module(rabbit_memcached_tcp_acceptor_sup).
 
 -behaviour(supervisor).
 %% --------------------------------------------------------------------
@@ -58,9 +58,9 @@ init(Callback) ->
      ok, 
      { 
       { simple_one_for_one, 10, 10 },
-      [{ tcp_acceptor, 
-         { tcp_acceptor, start_link, [Callback] },
-         transient, brutal_kill, worker, [tcp_acceptor] 
+      [{ rabbit_memcached_tcp_acceptor, 
+         { rabbit_memcached_tcp_acceptor, start_link, [Callback] },
+         transient, brutal_kill, worker, [rabbit_memcached_tcp_acceptor] 
        }]     
      }
     }.

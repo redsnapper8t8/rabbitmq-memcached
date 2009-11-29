@@ -36,7 +36,7 @@
     bytes_written = 0,
     curr_connections = 0,
     total_connections = 0,
-    uptime = server_util:current_time()                
+    uptime = rabbit_memcached_server_util:current_time()                
     }).
 
 %% ====================================================================
@@ -159,6 +159,6 @@ do_stats(State) ->
         { uptime, integer_to_list(State#state.uptime) },
         
         { pid, os:getpid() },
-        { time, integer_to_list(server_util:current_time()) },
+        { time, integer_to_list(rabbit_memcached_server_util:current_time()) },
         { version, ?VERSION}        
     ].

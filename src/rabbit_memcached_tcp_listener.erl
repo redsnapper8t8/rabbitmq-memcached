@@ -11,7 +11,7 @@
 %%
 %%   Contributor(s): ______________________________________.
 %%
--module(udp_listener).
+-module(rabbit_memcached_tcp_listener).
 
 -behaviour(gen_server).
 %% --------------------------------------------------------------------
@@ -20,19 +20,19 @@
 
 %% --------------------------------------------------------------------
 %% External exports
--export([start_link/6]).
+-export([start_link/7]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {callback, sock, on_startup, on_shutdown}).
+-record(state, {sock, on_startup, on_shutdown}).
 
 %% ====================================================================
 %% External functions
 %% ====================================================================
-start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback) ->
+start_link(Addr, Port, Opts, ConcurrentAcceptorCount, AcceptorSup, OnStartup, OnShutdown) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE,
-        {IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback},
+        {Addr, Port, Opts, ConcurrentAcceptorCount, AcceptorSup, OnStartup, OnShutdown},
         []
     ).
 
@@ -48,26 +48,33 @@ start_link(IPAddress, Port, SocketOpts, OnStartup, OnShutdown, Callback) ->
 %%          ignore               |
 %%          {stop, Reason}
 %% --------------------------------------------------------------------
-init({Addr, Port, SocketOpts,  {M, F, A} = OnStartup, OnShutdown, Callback}) ->
+init({Addr, Port, Opts, ConcurrentAcceptorCount, AcceptorSup, {M, F, A} = OnStartup, OnShutdown}) ->
     process_flag(trap_exit, true),
-    
-    OpenOpts = [{ip, Addr}],
-    
-    try gen_udp:open(Port, SocketOpts ++ OpenOpts) of
-        {ok, Socket} ->
-            error_logger:info_msg("started memcached UDP listener on ~s:~p~n", 
+    ListenOpts = [  {ip, Addr},
+                    {active, false},
+                    {backlog, 30},
+                    {keepalive, true},
+                    {reuseaddr, true},
+                    {packet, raw}, 
+                    {exit_on_close, false} ],
+    case gen_tcp:listen(Port, Opts ++ ListenOpts) of
+        {ok, LSock} ->
+            lists:foreach(fun(_) ->
+                            {ok, _APid} = supervisor:start_child(AcceptorSup, [LSock])
+                          end, 
+                          lists:duplicate(ConcurrentAcceptorCount, dummy)),
+            
+            error_logger:info_msg("started memcached TCP listener on ~s:~p~n", 
                                   [inet_parse:ntoa(Addr), Port]),
             
             apply(M, F, A ++ [Addr, Port]),
             
-            {ok, #state{callback=Callback, sock=Socket, 
-                        on_startup=OnStartup, on_shutdown=OnShutdown}};
+            {ok, #state{sock=LSock, on_startup=OnStartup, on_shutdown=OnShutdown}};
         {error, Reason} ->
-            {stop, {cannot_open, Addr, Port, Reason}}
-    catch
-        _:Error ->
-            io:format("fail to open UDP port ~p", [Error]),
-            {stop, Error}
+            error_logger:error_msg( "failed to start memcached TCP listener on ~s:~p - ~p~n", 
+                                    [inet_parse:ntoa(Addr), Port, Reason]),
+            
+            {stop, {cannot_listen, Addr, Port, Reason}}
     end.
 
 %% --------------------------------------------------------------------
@@ -80,9 +87,8 @@ init({Addr, Port, SocketOpts,  {M, F, A} = OnStartup, OnShutdown, Callback}) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% --------------------------------------------------------------------
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call(Request, _From, State) ->
+    {stop, {unknown_call, Request}, State}.
 
 %% --------------------------------------------------------------------
 %% Function: handle_cast/2
@@ -101,25 +107,6 @@ handle_cast(_Msg, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% --------------------------------------------------------------------
-handle_info({udp, Socket, IP, InPortNo, Packet}, State = #state{callback={M, F, A}}) ->
-    case Packet of
-        <<ReqId:16, _SeqNo:16, _Count:16, _Reserved:16, Data/binary>> when _Reserved =:= 0 ->                           
-            %% report
-            {ok, {Address, Port}} = inet:sockname(Socket),
-    
-            error_logger:info_msg("received memcached UDP request on ~s:~p from ~s:~p~n",
-                                  [inet_parse:ntoa(Address), Port,
-                                   inet_parse:ntoa(IP), InPortNo]),
-    
-            %% handle
-            apply(M, F, A ++ [{udp, Socket, Data, IP, InPortNo, ReqId}]);
-        _ ->
-            error_logger:info_msg("drop the invalid packet from ~p:~p with ~p bytes", 
-                                  [inet_parse:ntoa(IP), InPortNo, size(Packet)])
-    end,
-
-    {noreply, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -128,12 +115,11 @@ handle_info(_Info, State) ->
 %% Description: Shutdown the server
 %% Returns: any (ignored by gen_server)
 %% --------------------------------------------------------------------
-terminate(_Reason, #state{sock=Socket, on_shutdown={M, F, A}}) ->
-    {ok, {Addr, Port}} = inet:sockname(Socket),
-    
-    gen_udp:close(Socket),
+terminate(_Reason, #state{sock=LSock, on_shutdown={M, F, A}}) ->
+    {ok, {Addr, Port}} = inet:sockname(LSock),
+    gen_tcp:close(LSock),
    
-    error_logger:info_msg("stopped memcached UDP listener on ~s:~p~n",
+    error_logger:info_msg("stopped memcached TCP listener on ~s:~p~n",
                           [inet_parse:ntoa(Addr), Port]),
     
     apply(M, F, A ++ [Addr, Port]).
