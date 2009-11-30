@@ -12,6 +12,7 @@ The proxy mode could provide high stability because the RabbitMQ and RabbitMQ-me
   # Download the RabbitMQ-memcached package
   # Extract the package to a folder, like %RABBITM_MEMCACHED%
   # Edit the application configuration file, at %RABBITM_MEMCACHED%/ebin/rabbit_memcached.app
+  # Modify the settings in the server_mode section with your server
 {{{
             %{ server_mode, local },
             { server_mode, { remote, [
@@ -23,6 +24,5 @@ The proxy mode could provide high stability because the RabbitMQ and RabbitMQ-me
                 { ssl_options, none }    
             ]}},
 }}}
-  # Modify the settings in the server_mode section with your server
   # Modify the TCP and UDP listener address and port in the listeners section
   # Start the server with %RABBITM_MEMCACHED%/scripts/rabbitmq-memcached 
