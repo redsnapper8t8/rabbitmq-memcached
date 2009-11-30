@@ -5,6 +5,8 @@
 
 RabbitMQ-memcached can be run as a standalone AMQP proxy, which will receive the client request with memcache protocol, and forward the message to or from the RabbitMQ with AMQP protocol. The client could just use get and set method of memcache method to play with messages.
 
+The proxy mode could provide high stability because the RabbitMQ and RabbitMQ-memcached run in two processes or machines, but it will pay a little performance cost.
+
 = Details =
 
   # Download the RabbitMQ-memcached package
