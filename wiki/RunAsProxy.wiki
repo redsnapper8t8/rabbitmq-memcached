@@ -1,0 +1,15 @@
+#summary How to run RabbitMQ-memcached as a standalone AMQP proxy
+#labels Phase-Deploy
+
+= Introduction =
+
+RabbitMQ-memcached can be run as a standalone AMQP proxy, which will receive the client request with memcache protocol, and forward the message to or from the RabbitMQ with AMQP protocol. The client could just use get and set method of memcache method to play with messages.
+
+= Details =
+
+  # Download the RabbitMQ-memcached package
+  # Extract the package to a folder, like %RABBITM_MEMCACHED%
+  # Edit the application configuration file, at %RABBITM_MEMCACHED%/ebin/rabbit_memcached.app
+  # Modify the settings in the server_mode section with your server
+  # Modify the TCP and UDP listener address and port in the listeners section
+  # Start the server with %RABBITM_MEMCACHED%/scripts/rabbitmq-memcached 
